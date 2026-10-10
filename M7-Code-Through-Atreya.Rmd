@@ -1,0 +1,277 @@
+---
+title: "Creating Summary Statistics by Groups"
+subtitle: "PAF 514 - Module 7 Code-Through"
+author: "Ashish Atreya"
+date: "October 9, 2026"
+output:
+  html_document:
+    theme: readable
+    highlight: tango
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    self_contained: true
+    mathjax: null
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = TRUE,
+  fig.width = 7, fig.height = 4, fig.align = "center"
+)
+if (!requireNamespace("dplyr", quietly = TRUE)) {
+  stop("Install dplyr in the Console with install.packages('dplyr'), then knit again.")
+}
+library(dplyr)
+```
+
+<style>
+h1.title { margin-top: 35px; }
+h1, h2 { margin-top: 1.5em; }
+pre { font-size: 14px; }
+table { margin-bottom: 24px; }
+.alert { margin: 20px 0; }
+</style>
+
+<div class="alert alert-info">
+<strong>Learning goal:</strong> Turn individual records into a summary table with one row per group using <code>group_by()</code> and <code>summarise()</code>.
+</div>
+
+# Why summarize by groups?
+
+An overall average can hide differences between groups. For example, a city might want to compare how long residents wait for different public services. Grouped summaries help us compare programs without examining every record separately.
+
+In this tutorial, we will count records and calculate the mean, median, standard deviation, minimum, and maximum wait time for each program. We will also handle missing values, group by two variables, and graph the results.
+
+**What you need:** R, RStudio, and the **dplyr**, **rmarkdown**, and **knitr** packages. Run this once in the RStudio Console if needed:
+
+```{r install-packages, eval=FALSE}
+install.packages(c("dplyr", "rmarkdown", "knitr"))
+```
+
+The installation chunk is not executed during knitting. All data are created below, so no CSV file, working-directory change, or data download is needed.
+
+# Create and inspect the data
+
+Our toy dataset contains 12 fictional service requests. Each row represents one request. These numbers are for demonstration and do not describe an actual city.
+
+```{r create-data}
+requests <- data.frame(
+  request_id = 1:12,
+  program = rep(c("Housing", "Food Assistance", "Job Training"), each = 4),
+  district = rep(c("North", "North", "South", "South"), times = 3),
+  wait_days = c(10, 14, 18, NA, 2, 4, 6, 8, 7, 9, 11, 13)
+)
+
+knitr::kable(requests, caption = "Before: one row per service request")
+```
+
+The columns are:
+
+- **request_id:** a unique identifier for each request.
+- **program:** the service program used for grouping.
+- **district:** the location, which we will use as a second grouping variable.
+- **wait_days:** days waited for service; one Housing value is missing.
+
+`NA` means the value is missing. It does not mean the resident waited zero days.
+
+# Compare an overall average with grouped averages
+
+First, calculate one average for all requests with recorded wait times.
+
+```{r overall-summary}
+overall_summary <- requests %>%
+  summarise(
+    total_requests = n(),
+    recorded_waits = sum(!is.na(wait_days)),
+    mean_wait_days = mean(wait_days, na.rm = TRUE)
+  )
+
+knitr::kable(overall_summary, digits = 2,
+             caption = "Overall summary across all programs")
+```
+
+The `%>%` pipe passes the result on its left into the function on its right. Here, it passes `requests` into `summarise()`.
+
+Next, split the records by program before calculating the average.
+
+```{r grouped-means}
+program_means <- requests %>%
+  group_by(program) %>%
+  summarise(
+    mean_wait_days = mean(wait_days, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+knitr::kable(program_means, digits = 2,
+             caption = "After: one row per program")
+```
+
+**Read the code:** `group_by(program)` establishes the groups. `summarise()` calculates one average for each group. `.groups = "drop"` removes the grouping from the result so later operations work on the whole summary table.
+
+Housing has an average of **14 days**, Food Assistance **5 days**, and Job Training **10 days**. The overall average alone does not show these differences.
+
+# Build a complete summary table
+
+We can calculate several statistics in the same call.
+
+```{r full-summary}
+program_summary <- requests %>%
+  group_by(program) %>%
+  summarise(
+    total_requests = n(),
+    recorded_waits = sum(!is.na(wait_days)),
+    missing_waits = sum(is.na(wait_days)),
+    mean_days = mean(wait_days, na.rm = TRUE),
+    median_days = median(wait_days, na.rm = TRUE),
+    sd_days = sd(wait_days, na.rm = TRUE),
+    min_days = min(wait_days, na.rm = TRUE),
+    max_days = max(wait_days, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(mean_days))
+
+knitr::kable(program_summary, digits = 2,
+             caption = "Program statistics, sorted by highest average wait")
+```
+
+| Statistic | Meaning |
+|:--|:--|
+| `n()` | Number of rows in each group, including rows with missing waits |
+| `sum(!is.na(wait_days))` | Number of recorded wait times |
+| `sum(is.na(wait_days))` | Number of missing wait times |
+| `mean()` | Arithmetic average |
+| `median()` | Middle value after sorting |
+| `sd()` | Sample standard deviation; describes variation |
+| `min()` / `max()` | Smallest / largest recorded value |
+
+`na.rm = TRUE` excludes missing wait times from each calculation. It does not delete the original records. `arrange(desc(mean_days))` sorts the finished table from the highest to lowest average.
+
+The mean and median happen to match within each program in this example. They may differ in real data, especially when unusually large values pull the mean upward. These small, fictional groups demonstrate the technique; they are not evidence of program performance.
+
+# Avoid two common mistakes
+
+## Forgetting to group
+
+```{r missing-group}
+requests %>%
+  summarise(mean_days = mean(wait_days, na.rm = TRUE))
+```
+
+This is valid code, but it produces one overall mean. To compare programs, add `group_by(program)` before `summarise()`.
+
+## Forgetting to handle missing values
+
+```{r missing-na-rm}
+requests %>%
+  group_by(program) %>%
+  summarise(
+    mean_days = mean(wait_days),
+    .groups = "drop"
+  )
+```
+
+Housing returns `NA` because it contains a missing wait time. Use `mean(wait_days, na.rm = TRUE)` to calculate its average from the three recorded values.
+
+<div class="alert alert-warning">
+<strong>Check the denominator:</strong> Housing has four requests but only three recorded waits. Its mean describes those three recorded waits. Missing values may affect how representative a summary is.
+</div>
+
+**Special cases:** If a group has no recorded values, its mean is `NaN`, while `min()` and `max()` return infinite values with warnings. Use a conditional check such as `if (all(is.na(wait_days))) NA_real_ else min(wait_days, na.rm = TRUE)` for such groups. Standard deviation is `NA` when fewer than two values are recorded.
+
+# Group by two variables
+
+To compare districts within each program, include both variables in `group_by()`.
+
+```{r two-groups}
+district_summary <- requests %>%
+  group_by(program, district) %>%
+  summarise(
+    total_requests = n(),
+    recorded_waits = sum(!is.na(wait_days)),
+    mean_days = mean(wait_days, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+knitr::kable(district_summary, digits = 2,
+             caption = "One row per observed program and district combination")
+```
+
+The result has six rows: three programs, each with two districts. Housing in the South district has two requests, but its mean uses only one recorded wait time. Always read the count alongside the average.
+
+# Visualize the summary
+
+A simple bar chart makes the program averages easy to compare. This plot uses base R, so no additional graphing package is needed.
+
+```{r program-chart, fig.cap="Average recorded wait time by program in the fictional dataset."}
+old_par <- par(mar = c(5, 9, 3, 2))
+barplot(
+  height = rev(program_summary$mean_days),
+  names.arg = rev(program_summary$program),
+  horiz = TRUE,
+  las = 1,
+  col = "#4582ec",
+  border = NA,
+  xlim = c(0, max(program_summary$mean_days) * 1.15),
+  xlab = "Average wait time (days)",
+  main = "Average Wait Time by Program"
+)
+par(old_par)
+```
+
+The chart shows Housing has the longest average recorded wait. It displays averages only, so use the table to check sample sizes and variation.
+
+# Check that the code works
+
+These checks confirm the expected number of groups, record totals, missing-value counts, and means for this dataset. If a check fails, knitting stops.
+
+```{r validation}
+stopifnot(
+  nrow(requests) == 12L,
+  nrow(program_summary) == 3L,
+  nrow(district_summary) == 6L,
+  sum(program_summary$total_requests) == nrow(requests),
+  sum(program_summary$recorded_waits) == 11L,
+  sum(program_summary$missing_waits) == 1L,
+  isTRUE(all.equal(
+    program_summary$mean_days[match(
+      c("Housing", "Food Assistance", "Job Training"),
+      program_summary$program
+    )],
+    c(14, 5, 10)
+  )),
+  !dplyr::is_grouped_df(program_summary)
+)
+cat("All summary checks passed.")
+```
+
+**Try it yourself:** Change Housing's missing value from `NA` to `20` and run the summary chunks again. Its average should become 15.5 days and its recorded count should become four. The validation above is for the original dataset and will intentionally fail after this change. Restore `NA` before knitting the final submission.
+
+# Quick reference
+
+Use this pattern with your own dataset. Replace the dataset, grouping column, and numeric column names.
+
+```{r reusable-pattern, eval=FALSE}
+your_data %>%
+  group_by(group_column) %>%
+  summarise(
+    records = n(),
+    recorded_values = sum(!is.na(numeric_column)),
+    mean_value = mean(numeric_column, na.rm = TRUE),
+    median_value = median(numeric_column, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+The key steps are to inspect the records, choose the grouping variables, handle missing values, and check the resulting counts and statistics.
+
+# References
+
+- dplyr documentation: [Group by one or more variables](https://dplyr.tidyverse.org/reference/group_by.html).
+- dplyr documentation: [Summarise each group down to one row](https://dplyr.tidyverse.org/reference/summarise.html).
+- R documentation: [Sample datasets and statistical functions](https://stat.ethz.ch/R-manual/R-devel/library/stats/html/00Index.html).
+- R Markdown documentation: [HTML document options](https://rmarkdown.rstudio.com/docs/reference/html_document.html).
+- Bootswatch: [Readable theme for Bootstrap 3](https://bootswatch.com/3/readable/).
+
